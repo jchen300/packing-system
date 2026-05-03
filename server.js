@@ -4,9 +4,14 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db'); // 引入你的数据库
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const app = express();
 app.use(express.json());
 
+const SECRET_KEY =
+  '8f4f2e5a6b7c8d9e0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f'; // 换成一个复杂的字符串
+const ADMIN_PASSWORD_HASH = bcrypt.hashSync('123456', 10); // 初始密码设为 123456
 // 1. 自动创建 public/uploads 文件夹
 const uploadDir = path.join(__dirname, 'public/uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -36,18 +41,55 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 限制 100MB
 });
 
-// 2. 暴露静态目录（这样前端才能通过 http://.../uploads/xxx.mp4 看到视频）
-app.use('/uploads', express.static(uploadDir));
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
 
-// 接口：上传视频
-app.post('/api/upload', upload.single('video'), (req, res) => {
-  if (!req.file) return res.status(400).json({ success: false });
-  const videoUrl = `/uploads/${req.file.filename}`;
-  res.json({ success: true, url: videoUrl });
+  // 简单起见，我们只设一个管理员账号
+  if (
+    username === 'admin' &&
+    bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)
+  ) {
+    const token = jwt.sign({ user: 'admin' }, SECRET_KEY, { expiresIn: '24h' });
+    return res.json({ success: true, token });
+  }
+
+  res.status(401).json({ success: false, message: '用户名或密码错误' });
 });
 
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    // 必须也使用相同的 SECRET_KEY
+    if (err) {
+      console.log('❌ 验证失败详情:', err.message); // 在这里看终端输出！
+      return res.sendStatus(403);
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// 2. 暴露静态目录（这样前端才能通过 http://.../uploads/xxx.mp4 看到视频）
+app.use('/uploads', authenticateToken, express.static(uploadDir));
+
+// 接口：上传视频
+app.post(
+  '/api/upload',
+  authenticateToken,
+  upload.single('video'),
+  (req, res) => {
+    if (!req.file) return res.status(400).json({ success: false });
+    const videoUrl = `/uploads/${req.file.filename}`;
+    res.json({ success: true, url: videoUrl });
+  },
+);
+
 // 獲取清單：支持分頁和簡單搜索
-app.get('/api/orders', (req, res) => {
+app.get('/api/orders', authenticateToken, (req, res) => {
   try {
     // 獲取前端傳來的關鍵字（如果有）
     const { order_id, customer_name } = req.query;
@@ -77,7 +119,7 @@ app.get('/api/orders', (req, res) => {
 });
 
 //获得单个订单详情
-app.get('/api/orders/:id', (req, res) => {
+app.get('/api/orders/:id', authenticateToken, (req, res) => {
   try {
     const orderId = req.params.id;
     const row = db
@@ -94,7 +136,7 @@ app.get('/api/orders/:id', (req, res) => {
   }
 });
 // 更新订单
-app.put('/api/orders/:id', (req, res) => {
+app.put('/api/orders/:id', authenticateToken, (req, res) => {
   const order_id = req.params.id; // 从 URL 获取单号
   const { customer_name, phone, address, remark, video_url } = req.body;
 
@@ -124,7 +166,7 @@ app.put('/api/orders/:id', (req, res) => {
 });
 
 // 新增訂單接口
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', authenticateToken, (req, res) => {
   const { order_id, customer_name, phone, address, remark, video_url } =
     req.body;
   try {

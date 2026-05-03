@@ -23,20 +23,28 @@ export default defineConfig({
     baseNavigator: false, // 不跟随浏览器语言，强制使用默认设置
   },
   routes: [
+    { path: '/login', component: './login', layout: false },
     { path: '/', redirect: '/orders' },
     {
       name: '订单管理',
       icon: 'table',
       path: '/orders',
       component: './OrderList',
+      access: 'canAdmin',
     },
     {
       name: '新增发货',
       icon: 'plus',
       path: '/orders/add',
       component: './OrderAdd',
+      access: 'canAdmin',
     },
-    { path: '/orders/edit/:id', component: './OrderEdit', hideInMenu: true },
+    {
+      path: '/orders/edit/:id',
+      component: './OrderEdit',
+      hideInMenu: true,
+      access: 'canAdmin',
+    },
   ],
   npmClient: 'npm',
   utoopack: {},
